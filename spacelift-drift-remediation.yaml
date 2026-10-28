@@ -1,0 +1,276 @@
+appInstallations:
+  jira:
+    appName: Jira
+    appVersion: 0.5.1
+    id: 01a159f7-4d00-7d28-87e8-8c69adff439e
+  slack:
+    appName: Slack
+    appVersion: 0.2.2
+    id: 019f8016-da18-7a48-9b05-47d40818f160
+blocks:
+  - name: Any Drift?
+    description: Skips the Slack summary when nothing drifted
+    type:
+      coreBlock: condition
+    position: [0, 1200]
+    inputs:
+      default:
+        links:
+          - block: Collect Results
+            output: default
+        config: {}
+  - name: Collect Pages
+    description: Merges all pages of unconfirmed stacks into one list
+    type:
+      coreBlock: collect
+    position: [0, 300]
+    inputs:
+      default:
+        links:
+          - block: Unconfirmed Stacks
+            output: result
+        config:
+          group: !expr outputs.morningSchedule.time
+          emit: !expr '!outputs.unconfirmedStacks.searchStacks.pageInfo.hasNextPage'
+    outputs:
+      default:
+        outputCustomization: !expr raw.items.flatMap(item => item.unconfirmedStacks.searchStacks.edges.map(edge => edge.node))
+  - name: Collect Results
+    description: Waits until every stack has been processed, then emits the list
+    type:
+      coreBlock: collect
+    position: [0, 1050]
+    inputs:
+      default:
+        links:
+          - block: Create Drift Ticket
+            output: default
+          - block: Is Drift Run?
+            output: else
+        config:
+          group: !expr outputs.explode.groupKey
+          count: !expr outputs.explode.count
+  - name: Confirm Reconciliation Run
+    description: Confirms the drift reconciliation run in Spacelift
+    type:
+      coreBlock: spacelift
+      kind: confirmRun
+    position: [400, 1650]
+    inputs:
+      confirm:
+        links:
+          - block: Remember Confirmation
+            output: default
+  - name: Confirmed From Slack?
+    description: Ignores runs that weren't confirmed through the Slack button
+    type:
+      coreBlock: condition
+    position: [800, 1650]
+    inputs:
+      default:
+        links:
+          - block: Lookup Confirmation
+            output: default
+        config: {}
+  - name: Create Drift Ticket
+    description: Opens a Jira ticket with the stack name, drifted resources and run link
+    type:
+      appBlock:
+        block: createIssue
+        appInstallation: jira
+        schema: '{"order":0,"name":"Create Issue","category":"Issues","description":"Create a new Jira issue with specified details","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"additionalFields":{"order":8,"name":"Additional Fields","description":"Additional fields as a JSON object (for custom fields, components, etc.)","type":{"type":"object"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"assigneeAccountId":{"order":5,"name":"Assignee Account ID","description":"Account ID of the user to assign the issue to (optional)","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"description":{"order":3,"name":"Description","description":"Detailed description of the issue (supports ADF format)","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"issueTypeName":{"order":1,"name":"Issue Type","description":"The name of the issue type (e.g., ''Bug'', ''Task'', ''Story'', ''Epic'')","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":true,"fieldKey":"","sensitive":false},"labels":{"order":7,"name":"Labels","description":"Array of labels to add to the issue","type":{"items":{"type":{"type":"string"}},"type":"array"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"parentKey":{"order":6,"name":"Parent Issue Key","description":"Key of the parent issue (for subtasks) or epic (for stories/tasks under an epic)","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"priorityName":{"order":4,"name":"Priority","description":"The priority level name (e.g., ''Low'', ''Medium'', ''High'', ''Critical''). Note: Priority field must be available on the Create Issue screen for this project/issue type.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"projectKey":{"order":0,"name":"Project Key","description":"The key of the project where the issue will be created (e.g., ''PROJ'')","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":true,"fieldKey":"","sensitive":false},"summary":{"order":2,"name":"Summary","description":"Brief title/summary of the issue","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Created Issue","description":"Details of the successfully created issue","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"issueId":{"description":"The ID of the created issue","order":0,"type":"string"},"issueKey":{"description":"The key of the created issue (e.g., PROJECT-123)","order":1,"type":"string"},"issueUrl":{"description":"The API URL of the created issue","order":2,"type":"string"}},"required":["issueId","issueKey","issueUrl"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [-150, 900]
+    inputs:
+      default:
+        links:
+          - block: Is Drift Run?
+            output: then
+  - name: Each Stack
+    description: Emits one event per unconfirmed stack
+    type:
+      coreBlock: explode
+    position: [0, 450]
+    inputs:
+      default:
+        links:
+          - block: Collect Pages
+            output: default
+        config:
+          items: !expr outputs.collectPages
+          emittedLimit: 1000
+  - name: Has Next Page?
+    description: Loops back to fetch the next page of stacks
+    type:
+      coreBlock: condition
+    position: [-300, 150]
+    inputs:
+      default:
+        links:
+          - block: Unconfirmed Stacks
+            output: result
+        config:
+          condition: !expr outputs.unconfirmedStacks.searchStacks.pageInfo.hasNextPage
+  - name: Is Drift Run?
+    description: Only drift detection runs get a ticket; others skip straight to the collector
+    type:
+      coreBlock: condition
+    position: [0, 750]
+    inputs:
+      default:
+        links:
+          - block: Run Details
+            output: result
+        config: {}
+  - name: Lookup Confirmation
+    description: Finds the Slack thread for the finished run, if it was confirmed from Slack
+    type:
+      coreBlock: memoryGet
+    position: [800, 1500]
+    inputs:
+      default:
+        links:
+          - block: On Run Finished
+            output: runs
+        config:
+          key: !expr outputs.block.key
+          collection: default
+  - name: Morning Schedule
+    description: Fires every day at 8am
+    type:
+      coreBlock: schedule
+    position: [0, 0]
+    config:
+      definition:
+        type: cron
+        cron:
+          expression: 0 8 * * *
+          location: UTC
+  - name: On Run Finished
+    description: Fires when any run reaches a terminal state
+    type:
+      coreBlock: spacelift
+      kind: runEvents
+    position: [800, 1350]
+  - name: Post Drift Summary
+    description: 'Posts the summary to #platform-ops with a Confirm button per stack'
+    type:
+      appBlock:
+        block: sendMessageWithInteractions
+        appInstallation: slack
+        schema: '{"order":6,"name":"Send Message With Interactions","category":"Messaging","description":"Sends a message with Block Kit blocks to a Slack channel and listens for user interactions (button clicks, menu selections, etc.). Has two outputs: one when the message is sent, and one for each interaction.","config":{},"hasOnInternalMessage":true,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the interactive message.","config":{"blocks":{"order":1,"name":"Message Blocks","description":"The Slack Block Kit blocks to include in the message, as a JSON array. May contain interactive elements like buttons, select menus, etc.","type":{"items":{"description":"A Slack Block Kit block object.","type":"object"},"type":"array"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":2,"name":"Fallback Text","description":"Fallback text to display in notifications and for accessibility. Should summarize the content of your blocks.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":3,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"interaction":{"order":1,"name":"Interaction Received","description":"Emitted when a user interacts with the message (clicks button, selects from menu, etc.).","possiblePrimaryParents":["default"],"type":{"description":"Slack interaction payload containing details about the user action.","properties":{"actions":{"description":"Array of actions that were triggered.","items":{"description":"Details about the specific action (button click, menu selection, etc.).","properties":{"action_id":{"description":"The action_id of the element that was triggered.","order":0,"type":"string"},"action_ts":{"description":"Timestamp when the action occurred.","order":3,"type":"string"},"block_id":{"description":"The block_id of the block containing the triggered element.","order":1,"type":"string"},"selected_channel":{"description":"The selected channel ID (for channels_select).","order":12,"type":"string"},"selected_channels":{"description":"The selected channel IDs (for multi_channels_select).","items":{"type":"string"},"order":13,"type":"array"},"selected_conversation":{"description":"The selected conversation ID (for conversations_select).","order":14,"type":"string"},"selected_conversations":{"description":"The selected conversation IDs (for multi_conversations_select).","items":{"type":"string"},"order":15,"type":"array"},"selected_date":{"description":"The selected date (for datepicker, format: YYYY-MM-DD).","order":8,"type":"string"},"selected_option":{"description":"The selected option (for single select menus).","order":6,"properties":{"text":{"order":0,"properties":{"text":{"order":1,"type":"string"},"type":{"order":0,"type":"string"}},"type":"object"},"value":{"order":1,"type":"string"}},"type":"object"},"selected_options":{"description":"The selected options (for multi-select menus).","items":{"properties":{"text":{"order":0,"properties":{"text":{"order":1,"type":"string"},"type":{"order":0,"type":"string"}},"type":"object"},"value":{"order":1,"type":"string"}},"type":"object"},"order":7,"type":"array"},"selected_time":{"description":"The selected time (for timepicker, format: HH:MM).","order":9,"type":"string"},"selected_user":{"description":"The selected user ID (for users_select).","order":10,"type":"string"},"selected_users":{"description":"The selected user IDs (for multi_users_select).","items":{"type":"string"},"order":11,"type":"array"},"text":{"description":"Text object for elements like buttons.","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text","mrkdwn"],"order":0,"type":"string"}},"type":"object"},"type":{"description":"The type of action (e.g., ''button'', ''static_select'', ''users_select'', ''conversations_select'', ''channels_select'', ''external_select'', ''overflow'', ''datepicker'', ''timepicker'', ''radio_buttons'', ''checkboxes'').","order":2,"type":"string"},"value":{"description":"The value of the action (for buttons and overflow menus).","order":5,"type":"string"}},"required":["action_id","block_id","type","action_ts"],"type":"object"},"order":7,"type":"array"},"channel":{"description":"Information about the channel where the interaction occurred.","order":5,"properties":{"id":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","order":0,"type":"string"},"name":{"description":"Channel name.","order":1,"type":"string"}},"required":["id","name"],"type":"object"},"container":{"description":"Information about the message container.","order":2,"properties":{"message_ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":1,"type":"string"},"type":{"description":"Container type (usually ''message'').","order":0,"type":"string"}},"required":["type","message_ts"],"type":"object"},"message":{"description":"The message that contains the interactive element.","order":6,"type":"object"},"response_url":{"description":"URL that can be used to respond to the interaction.","order":8,"type":"string"},"team":{"description":"Information about the workspace.","order":4,"properties":{"domain":{"description":"Workspace domain.","order":1,"type":"string"},"id":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","order":0,"type":"string"}},"required":["id","domain"],"type":"object"},"trigger_id":{"description":"A temporary token to open modals or other interactive elements.","order":3,"type":"string"},"type":{"description":"The type of interaction (e.g., ''block_actions'', ''interactive_message'', ''view_submission'').","order":0,"type":"string"},"user":{"description":"Information about the user who performed the interaction.","order":1,"properties":{"id":{"description":"ID of a Slack user (e.g., U0123ABC).","order":0,"type":"string"},"name":{"description":"The user''s display name.","order":2,"type":"string"},"team_id":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","order":3,"type":"string"},"username":{"description":"The user''s username.","order":1,"type":"string"}},"required":["id","username","name","team_id"],"type":"object"}},"required":["type","user","trigger_id","team","channel"],"type":"object"}},"sent":{"order":0,"name":"Message Sent","description":"Emitted when the interactive message has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","order":1,"type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API.","order":2,"properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","order":6,"type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","order":4,"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"order":3,"type":"array"},"text":{"description":"Main text content - required unless fields is provided","order":2,"properties":{"emoji":{"description":"Parse emojis (plain_text only)","order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"order":0,"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"type":{"enum":["divider"],"order":0,"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","order":3,"type":"string"},"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"image_url":{"description":"URL of the image to display","order":2,"type":"string"},"title":{"description":"Optional title displayed below the image","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"order":0,"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"order":2,"type":"array"},"type":{"enum":["actions"],"order":0,"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"order":2,"type":"string"},"image_url":{"order":1,"type":"string"},"type":{"enum":["image"],"order":0,"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"order":2,"type":"array"},"type":{"enum":["context"],"order":0,"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"text":{"description":"Header text (plain text only)","order":2,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","order":6,"type":"boolean"},"element":{"description":"The input element","order":3,"properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","order":2,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","order":5,"type":"boolean"},"type":{"enum":["input"],"order":0,"type":"string"}},"required":["type","label","element"],"type":"object"}]},"order":9,"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","order":5,"type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","order":8,"properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","order":4,"type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","order":1,"type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","order":5,"properties":{"image_36":{"description":"URL for 36x36px icon.","order":0,"type":"string"},"image_48":{"description":"URL for 48x48px icon.","order":1,"type":"string"},"image_72":{"description":"URL for 72x72px icon.","order":2,"type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","order":0,"type":"string"},"name":{"description":"Display name of the bot.","order":2,"type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","order":6,"type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","order":3,"type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","order":11,"type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''.","order":1,"type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","order":7,"type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","order":3,"type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","order":10,"type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":2,"type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"order":0,"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","order":4,"type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile","blocks"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":0,"type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [0, 1350]
+    inputs:
+      default:
+        links:
+          - block: Any Drift?
+            output: then
+  - name: Remember Confirmation
+    description: Stores the Slack thread for the run so the result can be posted back later
+    type:
+      coreBlock: memorySet
+    position: [400, 1500]
+    inputs:
+      default:
+        links:
+          - block: Post Drift Summary
+            output: interaction
+        config:
+          key: !expr outputs.block.key
+          collection: default
+          value: !expr '!stored ? 1 : stored + 1'
+  - name: Reply Confirmed
+    description: Replies in the thread that the run was confirmed
+    type:
+      appBlock:
+        block: sendTextMessage
+        appInstallation: slack
+        schema: '{"order":1,"name":"Send Text Message","category":"Messaging","description":"Sends a simple markdown-formatted text message to a Slack channel or user. Can optionally be a thread reply.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the message.","config":{"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":1,"name":"Message Text","description":"The text of the message. Markdown is supported by default.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":2,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Message Sent","description":"Emitted when the message has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","order":1,"type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API. Contains details about the message that was posted.","order":2,"properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","order":6,"type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","order":4,"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"order":3,"type":"array"},"text":{"description":"Main text content - required unless fields is provided","order":2,"properties":{"emoji":{"description":"Parse emojis (plain_text only)","order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"order":0,"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"type":{"enum":["divider"],"order":0,"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","order":3,"type":"string"},"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"image_url":{"description":"URL of the image to display","order":2,"type":"string"},"title":{"description":"Optional title displayed below the image","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"order":0,"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"order":2,"type":"array"},"type":{"enum":["actions"],"order":0,"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"order":2,"type":"string"},"image_url":{"order":1,"type":"string"},"type":{"enum":["image"],"order":0,"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"order":2,"type":"array"},"type":{"enum":["context"],"order":0,"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"text":{"description":"Header text (plain text only)","order":2,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","order":6,"type":"boolean"},"element":{"description":"The input element","order":3,"properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","order":2,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","order":5,"type":"boolean"},"type":{"enum":["input"],"order":0,"type":"string"}},"required":["type","label","element"],"type":"object"}]},"order":9,"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","order":5,"type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","order":8,"properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","order":4,"type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","order":1,"type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","order":5,"properties":{"image_36":{"description":"URL for 36x36px icon.","order":0,"type":"string"},"image_48":{"description":"URL for 48x48px icon.","order":1,"type":"string"},"image_72":{"description":"URL for 72x72px icon.","order":2,"type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","order":0,"type":"string"},"name":{"description":"Display name of the bot.","order":2,"type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","order":6,"type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","order":3,"type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","order":11,"type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''. For messages sent by this block, it''s often ''bot_message''.","order":1,"type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","order":7,"type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","order":3,"type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","order":10,"type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":2,"type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"order":0,"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","order":4,"type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":0,"type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [400, 1800]
+    inputs:
+      default:
+        links:
+          - block: Confirm Reconciliation Run
+            output: confirmed
+  - name: Reply With Result
+    description: Replies in the Slack thread with the final run result
+    type:
+      appBlock:
+        block: sendTextMessage
+        appInstallation: slack
+        schema: '{"order":1,"name":"Send Text Message","category":"Messaging","description":"Sends a simple markdown-formatted text message to a Slack channel or user. Can optionally be a thread reply.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the message.","config":{"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":1,"name":"Message Text","description":"The text of the message. Markdown is supported by default.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":2,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Message Sent","description":"Emitted when the message has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","order":1,"type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API. Contains details about the message that was posted.","order":2,"properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","order":6,"type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","order":4,"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"order":3,"type":"array"},"text":{"description":"Main text content - required unless fields is provided","order":2,"properties":{"emoji":{"description":"Parse emojis (plain_text only)","order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"order":0,"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"type":{"enum":["divider"],"order":0,"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","order":3,"type":"string"},"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"image_url":{"description":"URL of the image to display","order":2,"type":"string"},"title":{"description":"Optional title displayed below the image","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"order":0,"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"order":2,"type":"array"},"type":{"enum":["actions"],"order":0,"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"order":2,"type":"string"},"image_url":{"order":1,"type":"string"},"type":{"enum":["image"],"order":0,"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"order":2,"type":"array"},"type":{"enum":["context"],"order":0,"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"text":{"description":"Header text (plain text only)","order":2,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","order":1,"type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","order":6,"type":"boolean"},"element":{"description":"The input element","order":3,"properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"order":0,"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","order":4,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","order":2,"properties":{"emoji":{"order":2,"type":"boolean"},"text":{"order":1,"type":"string"},"type":{"enum":["plain_text"],"order":0,"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","order":5,"type":"boolean"},"type":{"enum":["input"],"order":0,"type":"string"}},"required":["type","label","element"],"type":"object"}]},"order":9,"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","order":5,"type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","order":8,"properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","order":4,"type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","order":1,"type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","order":5,"properties":{"image_36":{"description":"URL for 36x36px icon.","order":0,"type":"string"},"image_48":{"description":"URL for 48x48px icon.","order":1,"type":"string"},"image_72":{"description":"URL for 72x72px icon.","order":2,"type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","order":0,"type":"string"},"name":{"description":"Display name of the bot.","order":2,"type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","order":6,"type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","order":3,"type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","order":11,"type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''. For messages sent by this block, it''s often ''bot_message''.","order":1,"type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","order":7,"type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","order":3,"type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","order":10,"type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":2,"type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"order":0,"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","order":4,"type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","order":0,"type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [800, 1800]
+    inputs:
+      default:
+        links:
+          - block: Confirmed From Slack?
+            output: then
+  - name: Run Details
+    description: Fetches the blocking run, drift flag and the planned resource changes
+    type:
+      coreBlock: spacelift
+      kind: graphql
+    position: [0, 600]
+    config:
+      query: !expr |-
+        `query RunDetails($stack: ID!, $run: ID!) {
+          stack(id: $stack) {
+            id
+            name
+            run(id: $run) {
+              id
+              type
+              state
+              driftDetection
+              changes {
+                action
+                phase
+                entity { address type name }
+              }
+            }
+          }
+        }`
+    inputs:
+      request:
+        links:
+          - block: Each Stack
+            output: default
+  - name: Transform
+    type:
+      coreBlock: transform
+    position: [0, 750]
+    inputs:
+      default:
+        config: {}
+  - name: Unconfirmed Stacks
+    description: Searches Spacelift for stacks in the UNCONFIRMED state (paginated)
+    type:
+      coreBlock: spacelift
+      kind: graphql
+    position: [0, 150]
+    config:
+      query: !expr |-
+        `query UnconfirmedStacks($input: SearchInput!) {
+          searchStacks(input: $input) {
+            edges {
+              node {
+                id
+                name
+                state
+                stateSetBy
+                stateSetAt
+              }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`
+    inputs:
+      request:
+        links:
+          - block: Has Next Page?
+            output: then
+          - block: Morning Schedule
+            output: default
