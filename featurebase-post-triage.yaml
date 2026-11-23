@@ -1,0 +1,778 @@
+appInstallations:
+  anthropic:
+    appName: Anthropic
+    appVersion: 0.8.0
+    id: 01a1af1c-3635-74e6-a013-c96bc8f1c312
+  featurebase:
+    appName: Featurebase
+    appVersion: 0.3.2
+    id: 01a1e0f1-5590-793c-84a4-4a32d8237eb4
+  github:
+    appName: GitHub
+    appVersion: 0.6.0
+    id: 01a1af1c-361c-73ae-b1b8-62a6dc4f7d6d
+  slack:
+    appName: Slack
+    appVersion: 0.2.2
+    id: 01a1af1b-4a89-7189-8e65-29ba6cfcc2b0
+  utilities:
+    appName: Utilities
+    appVersion: 0.2.1
+    id: 01a1e0f1-5561-747e-9c7f-53b6cd6e4cf6
+  variables:
+    appName: Variables
+    appVersion: 0.1.1
+    id: 01a1e0f1-55a1-74f8-b484-dae11142c6c6
+blocks:
+  - name: Build prompt
+    description: Assembles the ticket and the four GitHub context documents into the triage prompt.
+    type:
+      coreBlock: transform
+    position: [1670, 796]
+    inputs:
+      default:
+        links:
+          - block: Team routing
+            output: default
+        config: {}
+    outputs:
+      default:
+        outputCustomization: !expr |-
+          (function () {
+            const decode = (raw) => {
+              const b64 = String(raw == null ? '' : raw).replace(/[^A-Za-z0-9+/=]/g, '');
+              if (typeof atob === 'function') {
+                try { return decodeURIComponent(escape(atob(b64))); } catch (e) {}
+              }
+              // pure-JS fallback: drop '=' padding, then decode by group size
+              const s = b64.replace(/[^A-Za-z0-9+/]/g, '');
+              const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+              const bytes = new Array();
+              for (let i = 0; i < s.length; i += 4) {
+                const a = A.indexOf(s[i]), b = A.indexOf(s[i + 1]),
+                      c = A.indexOf(s[i + 2]), d = A.indexOf(s[i + 3]);
+                const n = (a << 18) | (b << 12) | ((c & 63) << 6) | (d & 63);
+                bytes.push((n >> 16) & 255);
+                if (c !== -1) bytes.push((n >> 8) & 255);
+                if (d !== -1) bytes.push(n & 255);
+              }
+              let out = '', j = 0;
+              while (j < bytes.length) {
+                const c1 = bytes[j++];
+                if (c1 < 128) out += String.fromCharCode(c1);
+                else if (c1 > 191 && c1 < 224) out += String.fromCharCode(((c1 & 31) << 6) | (bytes[j++] & 63));
+                else if (c1 >= 224 && c1 < 240) out += String.fromCharCode(((c1 & 15) << 12) | ((bytes[j++] & 63) << 6) | (bytes[j++] & 63));
+                else {
+                  const u = (((c1 & 7) << 18) | ((bytes[j++] & 63) << 12) | ((bytes[j++] & 63) << 6) | (bytes[j++] & 63)) - 0x10000;
+                  out += String.fromCharCode(0xD800 + (u >> 10), 0xDC00 + (u & 1023));
+                }
+              }
+              return out;
+            };
+            const fileText = (file) => decode(file && file.content ? file.content : '');
+            return `<ticket>${JSON.stringify(outputs.prepareTicket)}</ticket>
+
+          <team_scopes>
+          ${fileText(outputs.fetchTeamScopes)}
+          </team_scopes>
+
+          <pm_principles>
+          ${fileText(outputs.fetchPrinciples)}
+          </pm_principles>
+
+          <current_work>
+          ${fileText(outputs.fetchCurrentWork)}
+          </current_work>
+
+          <capabilities>
+          ${fileText(outputs.fetchCapabilities)}
+          </capabilities>`;
+          })()
+    errorHandler: Handle Error
+  - name: Comment Created
+    description: Fires when a new comment is added to a Featurebase post.
+    type:
+      appBlock:
+        block: commentCreatedSubscription
+        appInstallation: featurebase
+        schema: '{"order":5,"name":"Comment Created","category":"Event Subscriptions","description":"Receives events when a new comment is created in Featurebase","config":{},"hasOnInternalMessage":true,"inputs":{},"outputs":{"event":{"order":0,"name":"Comment Created Event","description":"Emitted when receives events when a new comment is created in featurebase","default":true,"possiblePrimaryParents":[],"type":{"description":"Featurebase webhook event payload","properties":{"comment":{"description":"The comment that was created","order":6,"properties":{"content":{"description":"Text content of the comment.","order":1,"type":"string"},"createdAt":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":10,"type":"string"},"downvotes":{"description":"Number of downvotes on the comment.","minimum":0,"order":5,"type":"integer"},"emailSent":{"description":"Whether notification emails have been sent for this comment.","order":8,"type":"boolean"},"id":{"description":"Unique comment ID.","order":0,"type":"string"},"inReview":{"description":"Whether the comment is currently under moderation review.","order":6,"type":"boolean"},"isPrivate":{"description":"Whether this comment is private to admins/moderators.","order":2,"type":"boolean"},"organization":{"description":"Organization ID this comment belongs to.","order":12,"type":"string"},"path":{"description":"Hierarchical path for nested comment threads.","order":14,"type":"string"},"pinned":{"description":"Whether the comment is pinned to the top of the discussion.","order":7,"type":"boolean"},"postId":{"description":"ID of the post this comment belongs to.","order":13,"type":"string"},"score":{"description":"Comment score (upvotes minus downvotes).","order":3,"type":"integer"},"sendNotification":{"description":"Whether this comment should trigger notifications.","order":9,"type":"boolean"},"updatedAt":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":11,"type":"string"},"upvotes":{"description":"Number of upvotes on the comment.","minimum":0,"order":4,"type":"integer"},"user":{"description":"Featurebase user object with profile information.","order":15,"properties":{"email":{"description":"User''s email address.","format":"email","order":1,"type":"string"},"id":{"description":"Unique user ID in Featurebase.","order":0,"type":"string"},"name":{"description":"Display name of the user.","order":2,"type":"string"},"profilePicture":{"description":"URL to the user''s profile picture, or null if not set.","format":"uri","order":3,"type":["string","null"]},"type":{"description":"User''s role type in the organization.","enum":["user","admin","member"],"order":5,"type":"string"},"verified":{"description":"Whether the user''s email address has been verified.","order":4,"type":"boolean"}},"required":["id","email","name","verified","type"],"type":"object"}},"required":["id","content","isPrivate","score","upvotes","downvotes","inReview","pinned","emailSent","sendNotification","createdAt","updatedAt","organization","postId","path","user"],"type":"object"},"createdAt":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":4,"type":"string"},"deliveryStatus":{"description":"Status of the webhook delivery.","enum":["pending","delivered","failed"],"order":5,"type":"string"},"id":{"description":"Unique webhook event ID.","order":1,"type":"string"},"organizationId":{"description":"Organization ID where the event occurred.","order":2,"type":"string"},"type":{"description":"Event type matching the webhook topic.","order":0,"type":"string"},"webhookId":{"description":"ID of the webhook that generated this event.","order":3,"type":"string"}},"required":["type","id","organizationId","webhookId","createdAt","deliveryStatus","comment"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, 1528]
+  - name: Delete Post
+    description: Permanently deletes the Featurebase post classified as spam.
+    type:
+      appBlock:
+        block: deletePost
+        appInstallation: featurebase
+        schema: '{"order":12,"name":"Delete Post","category":"Posts","description":"Permanently deletes a post from Featurebase by providing the post ID","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"id":{"order":0,"name":"Post ID","description":"The ID of the post to delete","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"success":{"order":0,"name":"Success","description":"Post deleted successfully","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"deletedAt":{"description":"Timestamp when the deletion occurred (ISO format)","order":2,"type":"string"},"postId":{"description":"The ID of the deleted post","order":0,"type":"string"},"success":{"description":"Whether the operation was successful","order":1,"type":"boolean"}},"required":["postId","success","deletedAt"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1396, 1676]
+    inputs:
+      default:
+        links:
+          - block: Is spam?
+            output: then
+        config:
+          id: !expr outputs.prepareTicket.id
+    errorHandler: Handle Error
+  - name: Fetch capabilities
+    description: Inventory of existing product functionality from the context repository
+    type:
+      appBlock:
+        block: getFileContents
+        appInstallation: github
+        schema: '{"order":12,"name":"Get file contents","category":"Contents","description":"Get contents of a file from a repository","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"owner":{"order":0,"name":"Owner","description":"The account owner of the repository. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"path":{"order":2,"name":"Path","description":"The path to the file within the repository","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"ref":{"order":3,"name":"Reference","description":"The name of the commit/branch/tag. Default: the repository''s default branch.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"repo":{"order":1,"name":"Repository","description":"The name of the repository without the `.git` extension. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"default":true,"possiblePrimaryParents":["default"],"type":{"discriminator":{"mapping":{"array":"#/components/schemas/content-directory","file":"#/components/schemas/content-file","submodule":"#/components/schemas/content-submodule","symlink":"#/components/schemas/content-symlink"},"propertyName":"type"},"oneOf":[{"description":"A list of directory items","items":{"properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":4,"type":"string"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":2,"type":"string"},"path":{"order":3,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":1,"type":"integer"},"type":{"enum":["dir","file","submodule","symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url"],"type":"object"},"type":"array"},{"description":"Content File","properties":{"Links":{"order":11,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":5,"type":"string"},"downloadUrl":{"order":10,"type":"string"},"encoding":{"order":1,"type":"string"},"gitUrl":{"order":8,"type":"string"},"htmlUrl":{"order":9,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":6,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":13,"type":"string"},"target":{"order":12,"type":"string"},"type":{"enum":["file"],"order":0,"type":"string"},"url":{"order":7,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","content","encoding"],"type":"object"},{"description":"An object describing a symlink","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"target":{"order":1,"type":"string"},"type":{"enum":["symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","target"],"type":"object"},{"description":"An object describing a submodule","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":1,"type":"string"},"type":{"enum":["submodule"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","submodule_git_url"],"type":"object"}]}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1058, 649]
+    inputs:
+      default:
+        links:
+          - block: Fetch current work
+            output: default
+        config:
+          owner: YOUR_ORG
+          path: triage/context/capabilities.md
+          ref: main
+          repo: your-context-repo
+  - name: Fetch current work
+    description: Recently shipped and active roadmap from the context repository
+    type:
+      appBlock:
+        block: getFileContents
+        appInstallation: github
+        schema: '{"order":12,"name":"Get file contents","category":"Contents","description":"Get contents of a file from a repository","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"owner":{"order":0,"name":"Owner","description":"The account owner of the repository. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"path":{"order":2,"name":"Path","description":"The path to the file within the repository","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"ref":{"order":3,"name":"Reference","description":"The name of the commit/branch/tag. Default: the repository''s default branch.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"repo":{"order":1,"name":"Repository","description":"The name of the repository without the `.git` extension. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"default":true,"possiblePrimaryParents":["default"],"type":{"discriminator":{"mapping":{"array":"#/components/schemas/content-directory","file":"#/components/schemas/content-file","submodule":"#/components/schemas/content-submodule","symlink":"#/components/schemas/content-symlink"},"propertyName":"type"},"oneOf":[{"description":"A list of directory items","items":{"properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":4,"type":"string"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":2,"type":"string"},"path":{"order":3,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":1,"type":"integer"},"type":{"enum":["dir","file","submodule","symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url"],"type":"object"},"type":"array"},{"description":"Content File","properties":{"Links":{"order":11,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":5,"type":"string"},"downloadUrl":{"order":10,"type":"string"},"encoding":{"order":1,"type":"string"},"gitUrl":{"order":8,"type":"string"},"htmlUrl":{"order":9,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":6,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":13,"type":"string"},"target":{"order":12,"type":"string"},"type":{"enum":["file"],"order":0,"type":"string"},"url":{"order":7,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","content","encoding"],"type":"object"},{"description":"An object describing a symlink","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"target":{"order":1,"type":"string"},"type":{"enum":["symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","target"],"type":"object"},{"description":"An object describing a submodule","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":1,"type":"string"},"type":{"enum":["submodule"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","submodule_git_url"],"type":"object"}]}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1058, 501]
+    inputs:
+      default:
+        links:
+          - block: Fetch principles
+            output: default
+        config:
+          owner: YOUR_ORG
+          path: triage/context/current-work.md
+          ref: main
+          repo: your-context-repo
+  - name: Fetch principles
+    description: PM principles and evaluation framework from the context repository
+    type:
+      appBlock:
+        block: getFileContents
+        appInstallation: github
+        schema: '{"order":12,"name":"Get file contents","category":"Contents","description":"Get contents of a file from a repository","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"owner":{"order":0,"name":"Owner","description":"The account owner of the repository. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"path":{"order":2,"name":"Path","description":"The path to the file within the repository","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"ref":{"order":3,"name":"Reference","description":"The name of the commit/branch/tag. Default: the repository''s default branch.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"repo":{"order":1,"name":"Repository","description":"The name of the repository without the `.git` extension. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"default":true,"possiblePrimaryParents":["default"],"type":{"discriminator":{"mapping":{"array":"#/components/schemas/content-directory","file":"#/components/schemas/content-file","submodule":"#/components/schemas/content-submodule","symlink":"#/components/schemas/content-symlink"},"propertyName":"type"},"oneOf":[{"description":"A list of directory items","items":{"properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":4,"type":"string"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":2,"type":"string"},"path":{"order":3,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":1,"type":"integer"},"type":{"enum":["dir","file","submodule","symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url"],"type":"object"},"type":"array"},{"description":"Content File","properties":{"Links":{"order":11,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":5,"type":"string"},"downloadUrl":{"order":10,"type":"string"},"encoding":{"order":1,"type":"string"},"gitUrl":{"order":8,"type":"string"},"htmlUrl":{"order":9,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":6,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":13,"type":"string"},"target":{"order":12,"type":"string"},"type":{"enum":["file"],"order":0,"type":"string"},"url":{"order":7,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","content","encoding"],"type":"object"},{"description":"An object describing a symlink","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"target":{"order":1,"type":"string"},"type":{"enum":["symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","target"],"type":"object"},{"description":"An object describing a submodule","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":1,"type":"string"},"type":{"enum":["submodule"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","submodule_git_url"],"type":"object"}]}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1058, 363]
+    inputs:
+      default:
+        links:
+          - block: Fetch team scopes
+            output: default
+        config:
+          owner: YOUR_ORG
+          path: triage/context/pm-principles.md
+          ref: main
+          repo: your-context-repo
+  - name: Fetch team routing
+    description: Per-team Slack PM and Featurebase assignee IDs (team-routing.json) from the context repository. Not inlined into the prompt.
+    type:
+      appBlock:
+        block: getFileContents
+        appInstallation: github
+        schema: '{"order":12,"name":"Get file contents","category":"Contents","description":"Get contents of a file from a repository","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"owner":{"order":0,"name":"Owner","description":"The account owner of the repository. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"path":{"order":2,"name":"Path","description":"The path to the file within the repository","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"ref":{"order":3,"name":"Reference","description":"The name of the commit/branch/tag. Default: the repository''s default branch.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"repo":{"order":1,"name":"Repository","description":"The name of the repository without the `.git` extension. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"default":true,"possiblePrimaryParents":["default"],"type":{"discriminator":{"mapping":{"array":"#/components/schemas/content-directory","file":"#/components/schemas/content-file","submodule":"#/components/schemas/content-submodule","symlink":"#/components/schemas/content-symlink"},"propertyName":"type"},"oneOf":[{"description":"A list of directory items","items":{"properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":4,"type":"string"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":2,"type":"string"},"path":{"order":3,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":1,"type":"integer"},"type":{"enum":["dir","file","submodule","symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url"],"type":"object"},"type":"array"},{"description":"Content File","properties":{"Links":{"order":11,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":5,"type":"string"},"downloadUrl":{"order":10,"type":"string"},"encoding":{"order":1,"type":"string"},"gitUrl":{"order":8,"type":"string"},"htmlUrl":{"order":9,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":6,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":13,"type":"string"},"target":{"order":12,"type":"string"},"type":{"enum":["file"],"order":0,"type":"string"},"url":{"order":7,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","content","encoding"],"type":"object"},{"description":"An object describing a symlink","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"target":{"order":1,"type":"string"},"type":{"enum":["symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","target"],"type":"object"},{"description":"An object describing a submodule","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":1,"type":"string"},"type":{"enum":["submodule"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","submodule_git_url"],"type":"object"}]}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1144, 885]
+    inputs:
+      default:
+        links:
+          - block: Fetch capabilities
+            output: default
+        config:
+          owner: YOUR_ORG
+          path: triage/context/team-routing.json
+          ref: main
+          repo: your-context-repo
+    errorHandler: Handle Error
+  - name: Fetch team scopes
+    description: Team charters, feature ownership table, and routing heuristics from the context repository
+    type:
+      appBlock:
+        block: getFileContents
+        appInstallation: github
+        schema: '{"order":12,"name":"Get file contents","category":"Contents","description":"Get contents of a file from a repository","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"owner":{"order":0,"name":"Owner","description":"The account owner of the repository. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"path":{"order":2,"name":"Path","description":"The path to the file within the repository","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"ref":{"order":3,"name":"Reference","description":"The name of the commit/branch/tag. Default: the repository''s default branch.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"repo":{"order":1,"name":"Repository","description":"The name of the repository without the `.git` extension. The name is not case sensitive.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"default":true,"possiblePrimaryParents":["default"],"type":{"discriminator":{"mapping":{"array":"#/components/schemas/content-directory","file":"#/components/schemas/content-file","submodule":"#/components/schemas/content-submodule","symlink":"#/components/schemas/content-symlink"},"propertyName":"type"},"oneOf":[{"description":"A list of directory items","items":{"properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":4,"type":"string"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":2,"type":"string"},"path":{"order":3,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":1,"type":"integer"},"type":{"enum":["dir","file","submodule","symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url"],"type":"object"},"type":"array"},{"description":"Content File","properties":{"Links":{"order":11,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"content":{"order":5,"type":"string"},"downloadUrl":{"order":10,"type":"string"},"encoding":{"order":1,"type":"string"},"gitUrl":{"order":8,"type":"string"},"htmlUrl":{"order":9,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":6,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":13,"type":"string"},"target":{"order":12,"type":"string"},"type":{"enum":["file"],"order":0,"type":"string"},"url":{"order":7,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","content","encoding"],"type":"object"},{"description":"An object describing a symlink","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"target":{"order":1,"type":"string"},"type":{"enum":["symlink"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","target"],"type":"object"},{"description":"An object describing a submodule","properties":{"Links":{"order":10,"properties":{"git":{"order":0,"type":"string"},"html":{"order":1,"type":"string"},"self":{"order":2,"type":"string"}},"required":["git","html","self"],"type":"object"},"downloadUrl":{"order":9,"type":"string"},"gitUrl":{"order":7,"type":"string"},"htmlUrl":{"order":8,"type":"string"},"name":{"order":3,"type":"string"},"path":{"order":4,"type":"string"},"sha":{"order":5,"type":"string"},"size":{"order":2,"type":"integer"},"submoduleGitUrl":{"order":1,"type":"string"},"type":{"enum":["submodule"],"order":0,"type":"string"},"url":{"order":6,"type":"string"}},"required":["_links","git_url","html_url","download_url","name","path","sha","size","type","url","submodule_git_url"],"type":"object"}]}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1058, 225]
+    inputs:
+      default:
+        links:
+          - block: Prepare ticket
+            output: default
+        config:
+          owner: YOUR_ORG
+          path: triage/context/team-scopes.md
+          ref: main
+          repo: your-context-repo
+  - name: Format Triage Response
+    description: Formats the triage response with Slack-compatible Markdown
+    type:
+      coreBlock: transform
+    position: [1944, 1666]
+    inputs:
+      default:
+        links:
+          - block: Is spam?
+            output: else
+        config: {}
+    outputs:
+      default:
+        outputCustomization: !expr "(function() {\n  const triage = outputs.triage.object;\n\n  const classificationEmojis = {\n    feature_request: \"✨\",\n    support_request: \"\U0001F91D\",\n    bug_report: \"\U0001F41B\",\n    spam: \"\U0001F6AB\"\n  };\n\n  const emoji = classificationEmojis[triage && triage.classification] || \"\U0001F4CB\";\n\n  const nextStepEmojis = {\n    send_to_solutions_engineering: \"\U0001F468\U0001F4BB\",\n    open_engineering_ticket: \"\U0001F527\",\n    open_support_ticket: \"\U0001F3AB\",\n    close: \"❌\",\n    ask_customer_for_more_data: \"❓\",\n    open_for_community_voting: \"\U0001F5F3\"\n  };\n\n  const nextStepLabels = {\n    send_to_solutions_engineering: \"Send to Solutions Engineering\",\n    open_engineering_ticket: \"Open Engineering Ticket\",\n    open_support_ticket: \"Open Support Ticket\",\n    close: \"Close\",\n    ask_customer_for_more_data: \"Ask Customer for More Data\",\n    open_for_community_voting: \"Open for Community Voting\"\n  };\n\n  const nextStepEmoji = nextStepEmojis[triage && triage.proposed_next_step] || \"\U0001F4CB\";\n  const nextStepLabel = nextStepLabels[triage && triage.proposed_next_step] || (triage && triage.proposed_next_step);\n\n  // Decode HTML entities; looped because the model sometimes double-escapes (&amp;lt;p&amp;gt;)\n  function decodeEntities(text) {\n    let s = text;\n    for (let i = 0; i < 3; i++) {\n      const prev = s;\n      s = s\n        .replace(/&amp;/g, '&')\n        .replace(/&lt;/g, '<')\n        .replace(/&gt;/g, '>')\n        .replace(/&quot;/g, '\"')\n        .replace(/&#0?39;/g, \"'\")\n        .replace(/&apos;/g, \"'\")\n        .replace(/&nbsp;/g, ' ');\n      if (s === prev) break;\n    }\n    return s;\n  }\n\n  // Convert HTML (possibly entity-escaped) to Slack mrkdwn; plain text passes through unchanged\n  function htmlToSlackMrkdwn(html) {\n    if (!html) return '';\n    return decodeEntities(html)\n      .replace(/<strong>(.*?)<\\/strong>/gs, '*$1*')\n      .replace(/<b>(.*?)<\\/b>/gs, '*$1*')\n      .replace(/<em>(.*?)<\\/em>/gs, '_$1_')\n      .replace(/<i>(.*?)<\\/i>/gs, '_$1_')\n      .replace(/<code>(.*?)<\\/code>/gs, '`$1`')\n      .replace(/<a\\s[^>]*href=\"([^\"]*)\"[^>]*>(.*?)<\\/a>/gs, '\\x01$1|$2\\x02')\n      .replace(/<li[^>]*>(.*?)<\\/li>/gs, '• $1\\n')\n      .replace(/<\\/?(ul|ol)[^>]*>\\s*/g, '\\n')\n      .replace(/<p[^>]*>(.*?)<\\/p>/gs, '$1\\n\\n')\n      .replace(/<br\\s*\\/?>/g, '\\n')\n      .replace(/<[^>]+>/g, '')\n      .replace(/\\x01/g, '<')\n      .replace(/\\x02/g, '>')\n      .replace(/\\n{3,}/g, '\\n\\n')\n      .trim();\n  }\n\n  // Convert Markdown (ClickUp ticket draft) to Slack mrkdwn\n  function markdownToSlackMrkdwn(md) {\n    if (!md) return '';\n    return md\n      .replace(/^#{1,6}\\s+(.+)$/gm, function(m, p1) { return '*' + p1.replace(/\\*\\*/g, '') + '*'; })\n      .replace(/\\*\\*([^*\\n]+)\\*\\*/g, '*$1*')\n      .replace(/__([^_\\n]+)__/g, '*$1*')\n      .replace(/~~([^~\\n]+)~~/g, '~$1~')\n      .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, '<$2|$1>')\n      .replace(/^(\\s*)[-*]\\s+/gm, '$1• ')\n      .trim();\n  }\n\n  const blocks: any[] = [];\n\n  // Slack section blocks cap at 3000 chars; split long text at word boundaries\n  function pushChunked(text) {\n    const chunkSize = 2800;\n    if (text.length <= chunkSize) {\n      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: text } });\n      return;\n    }\n    const words = text.split(' ');\n    let currentChunk = '';\n    for (let i = 0; i < words.length; i++) {\n      const word = words[i];\n      if ((currentChunk + ' ' + word).length > chunkSize) {\n        if (currentChunk) {\n          blocks.push({ type: 'section', text: { type: 'mrkdwn', text: currentChunk.trim() } });\n          currentChunk = word;\n        } else {\n          blocks.push({ type: 'section', text: { type: 'mrkdwn', text: word } });\n        }\n      } else {\n        currentChunk += (currentChunk ? ' ' : '') + word;\n      }\n    }\n    if (currentChunk) {\n      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: currentChunk.trim() } });\n    }\n  }\n\n  blocks.push({\n    type: 'header',\n    text: {\n      type: 'plain_text',\n      text: `${emoji} Triage Complete`,\n      emoji: true\n    }\n  });\n\n  blocks.push({ type: 'divider' });\n\n  const classification = triage && triage.classification ? triage.classification.replace(/_/g, ' ') : 'unknown';\n  const certainty = triage && triage.classification_certainty || 0;\n  blocks.push({\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: `*Classification:* ${classification} (${certainty}% certainty)`\n    }\n  });\n\n  if (triage && triage.scope_team) {\n    blocks.push({\n      type: 'section',\n      text: {\n        type: 'mrkdwn',\n        text: `*Scope Team:* ${triage.scope_team}`\n      }\n    });\n  }\n\n  blocks.push({\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: `*Proposed Next Step:* ${nextStepEmoji} ${nextStepLabel}`\n    }\n  });\n\n  if (triage && triage.proposed_ticket) {\n    blocks.push({\n      type: 'section',\n      text: {\n        type: 'mrkdwn',\n        text: '*Proposed Ticket:*'\n      }\n    });\n    pushChunked(markdownToSlackMrkdwn(triage.proposed_ticket));\n  }\n\n  if (triage && triage.build_engineering_team) {\n    blocks.push({\n      type: 'section',\n      text: {\n        type: 'mrkdwn',\n        text: `*Build Engineering Team:* ${triage.build_engineering_team}`\n      }\n    });\n  }\n\n  if (triage && triage.classification === 'feature_request' && triage.build_recommendation !== undefined) {\n    const buildEmoji = triage.build_recommendation >= 70 ? \"\U0001F680\" : triage.build_recommendation >= 40 ? \"\U0001F914\" : \"⛔\";\n    blocks.push({\n      type: 'section',\n      text: {\n        type: 'mrkdwn',\n        text: `*Build Recommendation:* ${buildEmoji} ${triage.build_recommendation}/100`\n      }\n    });\n    if (triage.build_justification) {\n      blocks.push({\n        type: 'section',\n        text: {\n          type: 'mrkdwn',\n          text: `> ${triage.build_justification}`\n        }\n      });\n    }\n  }\n\n  blocks.push({ type: 'divider' });\n\n  const dataScore = triage && triage.sufficient_data_score || 0;\n  const dataEmoji = dataScore >= 70 ? \"✅\" : dataScore >= 40 ? \"⚠️\" : \"❌\";\n  const dataJustification = triage && triage.sufficient_data_justification || 'No justification provided';\n  blocks.push({\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: `*Data Sufficiency:* ${dataEmoji} ${dataScore}/100`\n    }\n  });\n  blocks.push({\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: `> ${dataJustification}`\n    }\n  });\n\n  blocks.push({ type: 'divider' });\n\n  blocks.push({\n    type: 'section',\n    text: {\n      type: 'mrkdwn',\n      text: '*Proposed Response:*'\n    }\n  });\n\n  pushChunked(htmlToSlackMrkdwn(triage && triage.proposed_response || ''));\n\n  // PM notifications based on scope_team. IDs come from triage/context/team-routing.json via the Team routing block.\n  const scopeTeamName = triage && triage.scope_team ? triage.scope_team : '';\n  const route = scopeTeamName && outputs.teamRouting && outputs.teamRouting.teams ? outputs.teamRouting.teams[scopeTeamName] : null;\n\n  if (scopeTeamName) {\n    blocks.push({ type: 'divider' });\n    blocks.push({\n      type: 'section',\n      text: {\n        type: 'mrkdwn',\n        text: route && route.slack_pm_user_id\n          ? `\U0001F440 <@${route.slack_pm_user_id}> FYI — new ticket triaged above.`\n          : `⚠️ No PM mapping for team \"${scopeTeamName}\" in team-routing.json.`\n      }\n    });\n  }\n\n  return blocks;\n})()"
+    errorHandler: Handle Error
+  - name: Get Initial Thread TS
+    description: Fetches the Slack thread_ts from memory using the FB post ID, to use in Indicate thinking
+    type:
+      coreBlock: memoryGet
+    position: [1670, 934]
+    inputs:
+      default:
+        links:
+          - block: Build prompt
+            output: default
+        config:
+          key: !expr outputs.prepareTicket.id
+          collection: fb-slack-mapping
+  - name: Get Post
+    description: Fetches the full Featurebase post, including its custom fields.
+    type:
+      appBlock:
+        block: getPost
+        appInstallation: featurebase
+        schema: '{"order":9,"name":"Get Post","category":"Posts","description":"Retrieves a single post by ID from Featurebase","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"id":{"order":0,"name":"Post ID","description":"The ID of the post to retrieve","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"success":{"order":0,"name":"Success","description":"Post retrieved successfully (or not found)","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"found":{"description":"Whether the post was found","order":2,"type":"boolean"},"post":{"additionalProperties":true,"description":"The retrieved post details","order":0,"properties":{"commentCount":{"description":"Total number of comments on the post.","minimum":0,"order":5,"type":"integer"},"commentsAllowed":{"description":"Whether users can comment on this post.","order":7,"type":"boolean"},"content":{"description":"Full content/description of the post.","order":2,"type":"string"},"date":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":8,"type":"string"},"id":{"description":"Unique post ID.","order":0,"type":"string"},"lastModified":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":9,"type":"string"},"lastUpvoted":{"description":"Timestamp of the most recent upvote, or null if never upvoted.","format":"date-time","order":10,"type":["string","null"]},"pinned":{"description":"Whether the post is pinned to the top of its category.","order":6,"type":"boolean"},"postCategory":{"description":"Category information for organizing posts.","order":13,"properties":{"icon":{"description":"Icon identifier or emoji for the category.","order":2,"type":["string","null"]},"id":{"description":"Unique category ID.","order":3,"type":"string"},"name":{"description":"Display name of the category.","order":0,"type":"string"},"private":{"description":"Whether this category is private to certain users.","order":1,"type":"boolean"}},"required":["name","private","id"],"type":"object"},"postStatus":{"description":"Status information for a post (e.g., ''Under Review'', ''In Progress'', ''Completed'').","order":12,"properties":{"color":{"description":"Hex color code for the status (e.g., ''#FF5733'').","order":1,"pattern":"^#[0-9A-Fa-f]{6}$","type":"string"},"id":{"description":"Unique status ID.","order":4,"type":"string"},"isDefault":{"description":"Whether this is the default status for new posts.","order":3,"type":"boolean"},"name":{"description":"Display name of the status.","order":0,"type":"string"},"type":{"description":"Internal type identifier for the status.","order":2,"type":"string"}},"required":["name","color","type","isDefault","id"],"type":"object"},"postTags":{"description":"List of tags associated with the post.","items":{"properties":{"color":{"order":1,"type":"string"},"id":{"order":3,"type":"string"},"name":{"order":0,"type":"string"},"private":{"order":2,"type":"boolean"}},"type":"object"},"order":14,"type":"array"},"slug":{"description":"URL-friendly slug for the post.","order":3,"type":"string"},"title":{"description":"Title of the post.","order":1,"type":"string"},"upvotes":{"description":"Number of upvotes the post has received.","minimum":0,"order":4,"type":"integer"},"user":{"description":"Featurebase user object with profile information.","order":11,"properties":{"email":{"description":"User''s email address.","format":"email","order":1,"type":"string"},"id":{"description":"Unique user ID in Featurebase.","order":0,"type":"string"},"name":{"description":"Display name of the user.","order":2,"type":"string"},"profilePicture":{"description":"URL to the user''s profile picture, or null if not set.","format":"uri","order":3,"type":["string","null"]},"type":{"description":"User''s role type in the organization.","enum":["user","admin","member"],"order":5,"type":"string"},"verified":{"description":"Whether the user''s email address has been verified.","order":4,"type":"boolean"}},"required":["id","email","name","verified","type"],"type":"object"}},"required":["id","title","content","slug","upvotes","commentCount","pinned","commentsAllowed","date","lastModified","user","postStatus","postCategory"],"type":"object"},"success":{"description":"Whether the operation was successful","order":1,"type":"boolean"}},"required":["post","success","found"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, -565]
+    inputs:
+      default:
+        links:
+          - block: When post created
+            output: event
+        config:
+          id: !expr outputs.whenPostCreated.post.id
+    errorHandler: Handle Error
+  - name: Get Slack thread mapping
+    description: Retrieves the Slack thread timestamp stored for a Featurebase post ID
+    type:
+      coreBlock: memoryGet
+    position: [1122, 1666]
+    inputs:
+      default:
+        links:
+          - block: Comment Created
+            output: event
+        config:
+          key: !expr outputs.commentCreated.comment.postId
+          collection: fb-slack-mapping
+  - name: Get Spam Thread TS
+    description: Fetches the Slack thread_ts from memory using the FB post ID, to use in Notify Spam
+    type:
+      coreBlock: memoryGet
+    position: [1396, 1823]
+    inputs:
+      default:
+        links:
+          - block: Delete Post
+            output: success
+        config:
+          key: !expr outputs.prepareTicket.id
+          collection: fb-slack-mapping
+  - name: Get Triage Thread TS
+    description: Fetches the Slack thread_ts from memory using the FB post ID, to use in Notify Triage
+    type:
+      coreBlock: memoryGet
+    position: [1944, 1823]
+    inputs:
+      default:
+        links:
+          - block: Format Triage Response
+            output: default
+        config:
+          key: !expr outputs.prepareTicket.id
+          collection: fb-slack-mapping
+  - name: Handle Error
+    description: Catches failures anywhere in the triage chain.
+    type:
+      coreBlock: handleError
+    position: [848, 1701]
+  - name: Indicate thinking
+    description: Put a bot reaction on the message to indicate to the user that it's currently being processed. This may take a while, so adding a reaction puts the user more at ease that the flow is not broken.
+    type:
+      appBlock:
+        block: addReaction
+        appInstallation: slack
+        schema: '{"order":9,"name":"Add Reaction","category":"Reactions","description":"Adds a reaction (emoji) to a specific message in a Slack channel.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Add","description":"Trigger adding a reaction to the specified message.","config":{"channelId":{"order":0,"name":"Channel ID","description":"ID of the channel (e.g., C0123ABC) containing the message.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"name":{"order":2,"name":"Reaction Name","description":"The emoji name to add as a reaction (without colons, e.g., ''thumbsup'', ''heart'').","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"ts":{"order":1,"name":"Message Timestamp","description":"The timestamp (ts) of the message to add a reaction to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Reaction Added","description":"Emitted when the reaction has been successfully added.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","type":"string"},"reaction":{"description":"The emoji name that was added as a reaction.","type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"}},"required":["channel","ts","reaction","ok"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1670, 1072]
+    inputs:
+      default:
+        links:
+          - block: Get Initial Thread TS
+            output: default
+        config:
+          channelId: !expr '`CXXXXXXXXXX`'
+          name: eyes
+          ts: !expr |-
+            (outputs.getInitialThreadTs.value || "").toString()
+    errorHandler: Handle Error
+  - name: Instructions
+    description: System prompt that defines the skeptical robotic PM persona, scoring framework and response templates.
+    type:
+      appBlock:
+        block: flowVariable
+        appInstallation: variables
+        schema: '{"order":4,"name":"Flow-local variable","category":"Variables","description":"Store and manage a flow-local plaintext variable","config":{"value":{"order":0,"name":"Value","description":"Value of the flow-local plaintext variable","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnInternalMessage":false,"inputs":{},"outputs":{"default":{"order":0,"description":"Emitted when the flow-local variable value changes","default":true,"possiblePrimaryParents":[],"type":{"properties":{"previousValue":{"type":"string"},"value":{"type":"string"}},"required":["value"],"type":"object"}}},"signals":{"value":{"order":0,"name":"Value","description":"Value of the flow-local plaintext variable","sensitive":false}},"hasOnSync":true,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [26, 1681]
+    config:
+      value: "You are a robotic Product Manager. Your job is to protect engineering capacity and ensure we only build what truly matters. Most feature requests should not be built. That's not cynicism, it's focus.\n\nIn this unit of work, you will triage a post submitted by a user. Your default stance is skepticism. The burden of proof is on the request to demonstrate strategic value.\n\n## Core Questions (in order of importance)\n\n1. **Is this already possible?** Users often don't know our features. Check the capabilities context thoroughly.\n\n2. **What's the real job here?** Strip away the feature request to find the underlying progress they want. Often the job is valid but their solution is wrong.\n\n3. **Who else has this problem?** One customer's edge case is not a product priority. Look for patterns across segments.\n\n4. **Does this align with our core value drivers?** If it doesn't meaningfully advance them, it's probably not worth doing.\n\n5. **What's the ROI?** Consider:\n   - Engineering effort\n   - Maintenance burden forever\n   - Documentation and support cost\n   - Opportunity cost (what won't we build instead?)\n\n6. **Is this strategic or tactical?**\n   - Strategic: Unlocks new customer segments, enables new workflows, differentiates us\n   - Tactical: Makes existing users marginally happier\n   - Cosmetic: UI preferences, minor conveniences\n\n## Scoring Framework\n\nRate each request on:\n\n- **Market Impact** (0-100): Will this help us win deals or just please existing users?\n- **Alignment** (0-100): How well does this fit our product philosophy and technical architecture?\n- **Effort** (0-100): How expensive is this to build AND maintain? (Higher = more expensive)\n\nOnly requests with high market impact, strong alignment and low effort should be considered.\n\n## Response Templates\n\n### For \"Already Possible\":\n\"This is already achievable using [specific feature]. Here's how: [brief explanation]. Would this approach work for your use case?\"\n\n### For \"Wrong Layer\":\n\"Interesting use case. This feels like something better solved at the [correct layer] level. Have you considered [alternative approach]?\"\n\n### For \"Not Strategic\":\n\"Thanks for the detailed feedback. While we see how this would help your specific workflow, we're currently focused on features that serve our broader user base. I've noted your feedback for future consideration.\"\n\n### For \"Needs More Data\":\n\"I want to understand this better. Can you walk me through:\n- A specific example where you needed this\n- What you're doing today as a workaround\n- How often this comes up\n- What the impact is when you can't do this\"\n\n## What You're Looking For\n\n**Green flags (rare):**\n- Multiple customers asking for the same thing\n- Unlocks a new customer segment we want\n- Removes a competitive disadvantage\n- Simplifies our product by replacing multiple features\n- Enables a workflow that's impossible today\n\n**Red flags (common):**\n- \"It would be nice if...\"\n- \"Other tools have this...\"\n- Feature request disguised as bug report\n- Solves an edge case with a complex solution\n- Requires new concepts or abstractions\n\n## Remember\n\n- Every feature has a cost forever\n- Saying no preserves focus for what matters\n- If it doesn't hurt to not have it, we shouldn't build it\n\nWhen scoring \"do we want to build it\", your default should be 20 or below. Only truly strategic, high-impact features should score above 50. Anything above 70 should be exceptionally rare.\n\nBe direct. Be honest. Don't apologize for our focus.\n\n## Available Context\n\nFour sources of context are included in the input alongside the ticket:\n\n- `<team_scopes>`: team charters, the authoritative feature-to-team ownership table, and routing heuristics. Use this, and only this, to set `scope_team`.\n- `<pm_principles>`: product principles, priority order, and the evaluation framework. Use this to calibrate build recommendations and the tone of responses.\n- `<current_work>`: recently shipped features and the active roadmap. ALWAYS check this before proposing a ticket or telling a customer something is not possible.\n- `<capabilities>`: an inventory of existing functionality. Use this to answer \"is this already possible?\" and cite the relevant feature in your proposed response.\n\nYou do not need to call any tools, the context is already provided.\n\n## Input Format\n\nThe ticket content will be JSON-encoded and enclosed in <ticket></ticket> tags.\n\nPrevious triage results will be enclosed in <triage></triage> tags. If this is not provided, no previous triage has taken place.\n\nIf provided, a human product manager's comment on the latest triage will be enclosed in <human></human> tags. Treat it as your key guidance and re-evaluate the ticket in light of it. The response is still addressed to the original ticket creator, not to the human.\n\nYour response content and formatting will follow the provided schema.\n\nIn the proposed response to the ticket, do not disclose any internal thinking. You are responding to a customer, not discussing principles or product direction with a fellow PM.\n"
+  - name: Is spam?
+    description: Routes to deletion only when the model is more than 90% certain the post is spam.
+    type:
+      coreBlock: condition
+    position: [1670, 1528]
+    inputs:
+      default:
+        links:
+          - block: Triage
+            output: result
+        config:
+          condition: !expr |-
+            outputs.triage.object?.classification === "spam" && outputs.triage.object.classification_certainty > 90
+    errorHandler: Handle Error
+  - name: Mapping found?
+    description: Only post to Slack if a thread mapping exists for this Featurebase post
+    type:
+      coreBlock: condition
+    position: [1122, 1823]
+    inputs:
+      default:
+        links:
+          - block: Get Slack thread mapping
+            output: default
+        config:
+          condition: !expr outputs.getSlackThreadMapping.found
+  - name: Markdown content
+    description: Converts the post's HTML body to Markdown for Slack and the prompt.
+    type:
+      appBlock:
+        block: htmlToMarkdown
+        appInstallation: utilities
+        schema: '{"order":4,"name":"HTML to Markdown","category":"Transform","description":"Converts HTML content to Markdown format using turndown","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"HTML Input","description":"HTML content to convert to Markdown","config":{"bulletListMarker":{"order":2,"name":"Bullet List Marker","description":"Character to use for bullet lists","type":{"enum":["-","*","+"],"type":"string"},"fixed":false,"required":false,"default":"-","hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"codeBlockStyle":{"order":3,"name":"Code Block Style","description":"Style for code blocks","type":{"enum":["indented","fenced"],"type":"string"},"fixed":false,"required":false,"default":"fenced","hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"fence":{"order":4,"name":"Fence Characters","description":"Characters to use for fenced code blocks","type":{"enum":["```","~~~"],"type":"string"},"fixed":false,"required":false,"default":"```","hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"headingStyle":{"order":1,"name":"Heading Style","description":"Style for headings (setext or atx)","type":{"enum":["setext","atx"],"type":"string"},"fixed":false,"required":false,"default":"atx","hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"html":{"order":0,"name":"HTML Content","description":"The HTML content to convert","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Markdown Output","description":"Successfully converted Markdown content","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"markdown":{"description":"The converted Markdown content","type":"string"},"originalHtml":{"description":"The original HTML input","type":"string"}},"required":["markdown","originalHtml"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, -289]
+    inputs:
+      default:
+        links:
+          - block: Resolve custom fields
+            output: default
+        config:
+          bulletListMarker: '-'
+          codeBlockStyle: fenced
+          fence: '```'
+          headingStyle: atx
+          html: !expr outputs.whenPostCreated.post.content
+    errorHandler: Handle Error
+  - name: Notify Spam
+    description: Sends a notification message about spam detection and removal
+    type:
+      appBlock:
+        block: sendTextMessage
+        appInstallation: slack
+        schema: '{"order":1,"name":"Send Text Message","category":"Messaging","description":"Sends a simple markdown-formatted text message to a Slack channel or user. Can optionally be a thread reply.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the message.","config":{"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":1,"name":"Message Text","description":"The text of the message. Markdown is supported by default.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":2,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Message Sent","description":"Emitted when the message has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API. Contains details about the message that was posted.","properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":"array"},"text":{"description":"Main text content - required unless fields is provided","properties":{"emoji":{"description":"Parse emojis (plain_text only)","type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"type":{"enum":["divider"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","type":"string"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"image_url":{"description":"URL of the image to display","type":"string"},"title":{"description":"Optional title displayed below the image","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"type":"string"}},"required":["type"],"type":"object"},"type":"array"},"type":{"enum":["actions"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"type":"string"},"image_url":{"type":"string"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"type":"array"},"type":{"enum":["context"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"text":{"description":"Header text (plain text only)","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","type":"boolean"},"element":{"description":"The input element","properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","type":"boolean"},"type":{"enum":["input"],"type":"string"}},"required":["type","label","element"],"type":"object"}]},"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","properties":{"image_36":{"description":"URL for 36x36px icon.","type":"string"},"image_48":{"description":"URL for 48x48px icon.","type":"string"},"image_72":{"description":"URL for 72x72px icon.","type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","type":"string"},"name":{"description":"Display name of the bot.","type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''. For messages sent by this block, it''s often ''bot_message''.","type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1396, 1981]
+    inputs:
+      default:
+        links:
+          - block: Get Spam Thread TS
+            output: default
+        config:
+          channelId: !expr '`CXXXXXXXXXX`'
+          text: !expr "`\U0001F5D1 Spam detected and removed: \"${outputs.prepareTicket.title || 'Post'}\" was automatically deleted due to spam classification.`"
+          threadTs: !expr |-
+            (outputs.getSpamThreadTs.value || "").toString()
+    errorHandler: Handle Error
+  - name: Notify Triage
+    description: Posts the formatted triage result in the original Slack thread.
+    type:
+      appBlock:
+        block: sendMessageBlocks
+        appInstallation: slack
+        schema: '{"order":2,"name":"Send Message Blocks","category":"Messaging","description":"Sends a message to a Slack channel or user with a JSON list of Block Kit blocks. Can optionally be a thread reply.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the message with blocks.","config":{"blocks":{"order":1,"name":"Message Blocks","description":"The Slack Block Kit blocks to include in the message, as a JSON array.","type":{"items":{"description":"A Slack Block Kit block object.","type":"object"},"type":"array"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":2,"name":"Fallback Text","description":"Fallback text to display in notifications and for accessibility. Should summarize the content of your blocks.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":3,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Message Sent","description":"Emitted when the message with blocks has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API. Contains details about the message that was posted.","properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":"array"},"text":{"description":"Main text content - required unless fields is provided","properties":{"emoji":{"description":"Parse emojis (plain_text only)","type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"type":{"enum":["divider"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","type":"string"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"image_url":{"description":"URL of the image to display","type":"string"},"title":{"description":"Optional title displayed below the image","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"type":"string"}},"required":["type"],"type":"object"},"type":"array"},"type":{"enum":["actions"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"type":"string"},"image_url":{"type":"string"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"type":"array"},"type":{"enum":["context"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"text":{"description":"Header text (plain text only)","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","type":"boolean"},"element":{"description":"The input element","properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","type":"boolean"},"type":{"enum":["input"],"type":"string"}},"required":["type","label","element"],"type":"object"}]},"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","properties":{"image_36":{"description":"URL for 36x36px icon.","type":"string"},"image_48":{"description":"URL for 48x48px icon.","type":"string"},"image_72":{"description":"URL for 72x72px icon.","type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","type":"string"},"name":{"description":"Display name of the bot.","type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''. For messages sent by this block, it''s often ''bot_message''.","type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile","blocks"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1944, 1981]
+    inputs:
+      default:
+        links:
+          - block: Get Triage Thread TS
+            output: default
+        config:
+          blocks: !expr outputs.formatTriageResponse
+          channelId: !expr '`CXXXXXXXXXX`'
+          threadTs: !expr |-
+            (outputs.getTriageThreadTs.value || "").toString()
+    errorHandler: Handle Error
+  - name: Post comment to Slack thread
+    description: Posts Featurebase comment content to the original Slack thread
+    type:
+      appBlock:
+        block: sendTextMessage
+        appInstallation: slack
+        schema: '{"order":1,"name":"Send Text Message","category":"Messaging","description":"Sends a simple markdown-formatted text message to a Slack channel or user. Can optionally be a thread reply.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the message.","config":{"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":1,"name":"Message Text","description":"The text of the message. Markdown is supported by default.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":2,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Message Sent","description":"Emitted when the message has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API. Contains details about the message that was posted.","properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":"array"},"text":{"description":"Main text content - required unless fields is provided","properties":{"emoji":{"description":"Parse emojis (plain_text only)","type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"type":{"enum":["divider"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","type":"string"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"image_url":{"description":"URL of the image to display","type":"string"},"title":{"description":"Optional title displayed below the image","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"type":"string"}},"required":["type"],"type":"object"},"type":"array"},"type":{"enum":["actions"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"type":"string"},"image_url":{"type":"string"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"type":"array"},"type":{"enum":["context"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"text":{"description":"Header text (plain text only)","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","type":"boolean"},"element":{"description":"The input element","properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","type":"boolean"},"type":{"enum":["input"],"type":"string"}},"required":["type","label","element"],"type":"object"}]},"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","properties":{"image_36":{"description":"URL for 36x36px icon.","type":"string"},"image_48":{"description":"URL for 48x48px icon.","type":"string"},"image_72":{"description":"URL for 72x72px icon.","type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","type":"string"},"name":{"description":"Display name of the bot.","type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''. For messages sent by this block, it''s often ''bot_message''.","type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, 1972]
+    inputs:
+      default:
+        links:
+          - block: Mapping found?
+            output: then
+        config:
+          channelId: !expr '`CXXXXXXXXXX`'
+          text: !expr "(function() {\n  const c = outputs.commentCreated.comment;\n  let t = c.content || '';\n  for (let i = 0; i < 3; i++) {\n    const prev = t;\n    t = t\n      .replace(/&amp;/g, '&')\n      .replace(/&lt;/g, '<')\n      .replace(/&gt;/g, '>')\n      .replace(/&quot;/g, '\"')\n      .replace(/&#0?39;/g, \"'\")\n      .replace(/&apos;/g, \"'\")\n      .replace(/&nbsp;/g, ' ');\n    if (t === prev) break;\n  }\n  t = t\n    .replace(/<strong>(.*?)<\\/strong>/gs, '*$1*')\n    .replace(/<b>(.*?)<\\/b>/gs, '*$1*')\n    .replace(/<em>(.*?)<\\/em>/gs, '_$1_')\n    .replace(/<i>(.*?)<\\/i>/gs, '_$1_')\n    .replace(/<code>(.*?)<\\/code>/gs, '`$1`')\n    .replace(/<a\\s[^>]*href=\"([^\"]*)\"[^>]*>(.*?)<\\/a>/gs, '\\x01$1|$2\\x02')\n    .replace(/<li[^>]*>(.*?)<\\/li>/gs, '• $1\\n')\n    .replace(/<\\/?(ul|ol)[^>]*>\\s*/g, '\\n')\n    .replace(/<p[^>]*>(.*?)<\\/p>/gs, '$1\\n\\n')\n    .replace(/<br\\s*\\/?>/g, '\\n')\n    .replace(/<[^>]+>/g, '')\n    .replace(/\\x01/g, '<')\n    .replace(/\\x02/g, '>')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n  return `\U0001F4AC *New comment by ${c.user.name}:*\\n\\n${t}`;\n})()"
+          threadTs: !expr |-
+            (outputs.getSlackThreadMapping.value || "").toString()
+  - name: Prepare ticket
+    description: Normalizes the post into the ticket object passed to the model.
+    type:
+      coreBlock: transform
+    position: [1670, -13]
+    inputs:
+      default:
+        links:
+          - block: Start a Slack thread
+            output: default
+        config: {}
+    outputs:
+      default:
+        outputCustomization: !expr |
+          {
+              id: outputs.getPost?.post.id,
+              slug: outputs.getPost?.post.slug,
+              title: outputs.getPost?.post.title,
+              content: outputs.markdownContent?.markdown,
+              customFields: outputs.resolveCustomFields,
+              author: {
+                name: outputs.getPost?.post.author?.name,
+                email: outputs.getPost?.post.author?.email,
+              },
+          }
+    errorHandler: Handle Error
+  - name: Resolve custom fields
+    description: Resolves custom field IDs and option values to human-readable labels.
+    type:
+      appBlock:
+        block: resolveCustomFields
+        appInstallation: featurebase
+        schema: '{"order":38,"name":"Resolve custom fields","category":"Custom Fields","description":"Resolve custom field IDs and values to their human-readable form with field metadata","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Resolve custom fields","description":"Convert custom field IDs and values to readable format","config":{"customInputValues":{"order":0,"name":"Custom input values","description":"Object containing custom field IDs as keys and their values","type":{"additionalProperties":true,"type":"object"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Resolved Custom Fields","description":"Emitted when custom fields are successfully resolved","default":true,"possiblePrimaryParents":["default"],"type":{"description":"Array of resolved custom fields with non-empty values","items":{"properties":{"label":{"description":"Human-readable label for the custom field","order":0,"type":"string"},"value":{"description":"Human-readable value (option IDs resolved to labels)","order":1}},"required":["label","value"],"type":"object"},"type":"array"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, -427]
+    inputs:
+      default:
+        links:
+          - block: Get Post
+            output: success
+        config:
+          customInputValues: !expr outputs.getPost.post.customFields
+    errorHandler: Handle Error
+  - name: Start a Slack thread
+    description: Opens a Slack thread announcing the new Featurebase ticket.
+    type:
+      appBlock:
+        block: sendTextMessage
+        appInstallation: slack
+        schema: '{"order":1,"name":"Send Text Message","category":"Messaging","description":"Sends a simple markdown-formatted text message to a Slack channel or user. Can optionally be a thread reply.","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"name":"Send","description":"Trigger sending the message.","config":{"channelId":{"order":0,"name":"Channel or User ID","description":"ID of the channel (e.g., C0123ABC), DM (D0123ABC), or user (U0123ABC) to send the message to.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"text":{"order":1,"name":"Message Text","description":"The text of the message. Markdown is supported by default.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"threadTs":{"order":2,"name":"Thread Timestamp","description":"If replying to a message, provide the ''ts'' (timestamp) of the parent message.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"default":{"order":0,"name":"Message Sent","description":"Emitted when the message has been successfully sent.","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"channel":{"description":"ID of a Slack channel (e.g., C0123ABC), private group (G0123ABC), or direct message (D0123ABC).","type":"string"},"message":{"description":"The complete message object as returned by Slack''s chat.postMessage API. Contains details about the message that was posted.","properties":{"app_id":{"description":"ID of a Slack App (e.g., A0123ABC).","type":"string"},"blocks":{"description":"An array of Slack Block Kit layout blocks. Present if the message was composed using Block Kit or if Slack converted the text to a rich_text block. See Slack documentation for block structures: https://api.slack.com/reference/block-kit/blocks","items":{"oneOf":[{"additionalProperties":false,"description":"Section block - displays text alongside optional accessories like buttons, images, or select menus","properties":{"accessory":{"description":"Interactive element (button, select, image, etc.)","properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select","image"],"type":"string"}},"required":["type"],"type":"object"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"fields":{"description":"Array of text objects for multi-column layout (max 10)","items":{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":"array"},"text":{"description":"Main text content - required unless fields is provided","properties":{"emoji":{"description":"Parse emojis (plain_text only)","type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["section"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Divider block - creates a visual divider line","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"type":{"enum":["divider"],"type":"string"}},"required":["type"],"type":"object"},{"additionalProperties":false,"description":"Image block - displays an image","properties":{"alt_text":{"description":"Alt text for accessibility (required)","type":"string"},"block_id":{"description":"Optional unique identifier for the block","type":"string"},"image_url":{"description":"URL of the image to display","type":"string"},"title":{"description":"Optional title displayed below the image","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"},{"additionalProperties":false,"description":"Actions block - container for interactive elements like buttons and select menus","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Interactive elements (max 25)","items":{"properties":{"type":{"enum":["button","static_select","external_select","users_select","conversations_select","channels_select","overflow","datepicker","timepicker","datetime_select"],"type":"string"}},"required":["type"],"type":"object"},"type":"array"},"type":{"enum":["actions"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Context block - displays contextual info with small text and images","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"elements":{"description":"Mix of text and image elements (max 10)","items":{"oneOf":[{"properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["mrkdwn","plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},{"properties":{"alt_text":{"type":"string"},"image_url":{"type":"string"},"type":{"enum":["image"],"type":"string"}},"required":["type","image_url","alt_text"],"type":"object"}]},"type":"array"},"type":{"enum":["context"],"type":"string"}},"required":["type","elements"],"type":"object"},{"additionalProperties":false,"description":"Header block - displays large header text","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"text":{"description":"Header text (plain text only)","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"type":{"enum":["header"],"type":"string"}},"required":["type","text"],"type":"object"},{"additionalProperties":false,"description":"Input block - collects user input in modals and forms","properties":{"block_id":{"description":"Optional unique identifier for the block","type":"string"},"dispatch_action":{"description":"Whether to dispatch actions on character entry","type":"boolean"},"element":{"description":"The input element","properties":{"type":{"enum":["plain_text_input","email_text_input","url_text_input","number_input","static_select","multi_static_select","external_select","multi_external_select","users_select","multi_users_select","conversations_select","multi_conversations_select","channels_select","multi_channels_select","datepicker","timepicker","datetime_select","checkboxes","radio_buttons"],"type":"string"}},"required":["type"],"type":"object"},"hint":{"description":"Optional hint text","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"label":{"description":"Label for the input element","properties":{"emoji":{"type":"boolean"},"text":{"type":"string"},"type":{"enum":["plain_text"],"type":"string"}},"required":["type","text"],"type":"object"},"optional":{"description":"Whether input is optional (default false)","type":"boolean"},"type":{"enum":["input"],"type":"string"}},"required":["type","label","element"],"type":"object"}]},"type":"array"},"bot_id":{"description":"ID of a bot user (e.g., B0123ABC).","type":"string"},"bot_profile":{"description":"Profile information for the bot user that posted the message.","properties":{"app_id":{"description":"The App ID associated with this bot (same as the outer app_id if present).","type":"string"},"deleted":{"description":"Indicates if the bot user is deleted.","type":"boolean"},"icons":{"description":"URLs for the bot''s avatar images.","properties":{"image_36":{"description":"URL for 36x36px icon.","type":"string"},"image_48":{"description":"URL for 48x48px icon.","type":"string"},"image_72":{"description":"URL for 72x72px icon.","type":"string"}},"required":["image_36","image_48","image_72"],"type":"object"},"id":{"description":"Bot ID (same as the outer bot_id if present).","type":"string"},"name":{"description":"Display name of the bot.","type":"string"},"team_id":{"description":"The Team ID (workspace ID) this bot belongs to (same as the outer team if present).","type":"string"},"updated":{"description":"Timestamp (Unix epoch) of the last profile update.","type":"number"}},"required":["id","deleted","name","updated","app_id","icons","team_id"],"type":"object"},"parent_user_id":{"description":"Optional. The user ID of the author of the parent message, if this message is a reply in a thread.","type":"string"},"subtype":{"description":"Optional. Indicates a subtype of message, e.g., ''bot_message''. For messages sent by this block, it''s often ''bot_message''.","type":"string"},"team":{"description":"ID of a Slack workspace (team) (e.g., T0123ABC).","type":"string"},"text":{"description":"The textual content of the message. Markdown is supported by default in many contexts.","type":"string"},"thread_ts":{"description":"Optional. The timestamp of the parent message, if this message is part of a thread. If this message starts a new thread by replying to an existing message, this field will be present. If it''s a brand new message not in a thread, this field is usually absent unless it becomes the parent of a new thread, in which case `thread_ts` would equal `ts`.","type":"string"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"},"type":{"description":"The type of the object, always ''message''.","enum":["message"],"type":"string"},"user":{"description":"The user ID of the sender. For messages sent by a bot token, this is the bot''s user ID.","type":"string"}},"required":["type","ts","text","user","bot_id","app_id","team","bot_profile"],"type":"object"},"ts":{"description":"Timestamp of the message. This value is effectively the ID of the message in Slack''s API and is used to reference it in other operations (e.g., updating, deleting, threading).","type":"string"}},"required":["ts","channel","message"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, -151]
+    inputs:
+      default:
+        links:
+          - block: Markdown content
+            output: default
+        config:
+          channelId: CXXXXXXXXXX
+          text: !expr "`\U0001F39F New Featurebase ticket\n\n*Title*: <https://YOUR_FEEDBACK_DOMAIN/p/${outputs.whenPostCreated.post.slug}|${outputs.whenPostCreated.post.title}>\n*Author*: ${outputs.whenPostCreated.post.user.name}\n\n---\n\n${outputs.markdownContent.markdown}\n`"
+    errorHandler: Handle Error
+  - name: Store FB-Slack mapping
+    description: Stores the mapping between the Featurebase post ID and the Slack thread timestamp
+    type:
+      coreBlock: memorySet
+    position: [574, 1692]
+    inputs:
+      default:
+        links:
+          - block: Start a Slack thread
+            output: default
+        config:
+          key: !expr outputs.whenPostCreated.post.id
+          collection: fb-slack-mapping
+          value: !expr outputs.startASlackThread.ts
+  - name: Team routing
+    description: Decodes team-routing.json once; read by the Triage schema (team enum), Format Triage Response (Slack PM) and Update Post (assignee).
+    type:
+      coreBlock: transform
+    position: [1144, 1025]
+    inputs:
+      default:
+        links:
+          - block: Fetch team routing
+            output: default
+        config: {}
+    outputs:
+      default:
+        outputCustomization: !expr |-
+          (function () {
+            const FALLBACK = ["Platform", "Integrations", "Enterprise"];
+            const read = (file) => {
+              try {
+                const raw = String(file && file.content ? file.content : '').replace(/[^A-Za-z0-9+/=]/g, '');
+                const parsed = JSON.parse(decodeURIComponent(escape(atob(raw))));
+                return parsed && parsed.teams ? parsed.teams : null;
+              } catch (e) {
+                return null;
+              }
+            };
+            const teams = read(outputs.fetchTeamRouting);
+            const names = teams ? Object.keys(teams) : new Array();
+            return {
+              ok: names.length > 0,
+              teamNames: names.length > 0 ? names : FALLBACK,
+              teams: teams || {}
+            };
+          })()
+    errorHandler: Handle Error
+  - name: Triage
+    description: Uses Claude to classify the post, pick the owning team, score it and draft a customer response.
+    type:
+      appBlock:
+        block: generateMessage
+        appInstallation: anthropic
+        schema: '{"order":2,"name":"Generate message","category":"Core","description":"Generates a message based on provided input and parameters.","config":{},"hasOnInternalMessage":true,"inputs":{"default":{"order":0,"config":{"force":{"order":10,"name":"Force","description":"Force the model to call a tool. Provide a name to call a specific tool or `true` to always call any tool.","type":{"anyOf":[{"description":"The name of the tool to call.","type":"string"},{"description":"Always call any tool.","type":"boolean"}]},"fixed":false,"required":false,"default":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"maxRetries":{"order":5,"name":"Max retries","description":"The number of times to retry the call if it fails to generate a valid object. Works only if schema is provided.","type":{"type":"number"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"maxTokens":{"order":3,"name":"Max tokens","description":"The maximum number of tokens to generate before stopping. Note that the models may stop before reaching this maximum. This parameter only specifies the absolute maximum number of tokens to generate.","type":{"type":"number"},"fixed":false,"required":false,"default":4096,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"mcpServers":{"order":9,"name":"Remote MCP servers","description":"Array of remote MCP servers to use","type":{"items":{"properties":{"allowedTools":{"description":"Allowed tools for the MCP server","order":4,"type":"array"},"authorizationToken":{"description":"Authorization token for the MCP server","order":3,"type":"string"},"name":{"description":"Name of the MCP server","order":0,"type":"string"},"type":{"description":"Type of the MCP server","enum":["url"],"order":2,"type":"string"},"url":{"description":"URL of the MCP server","order":1,"type":"string"}},"required":["name","url","type"],"type":"object"},"type":"array"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"model":{"order":0,"name":"Model","description":"The model that will complete your prompt.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"prompt":{"order":1,"name":"Prompt","description":"The input to the model.","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"schema":{"order":4,"name":"Schema","description":"The JSON schema to generate the object from.","type":{"additionalProperties":true,"type":"object"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"skills":{"order":12,"name":"Skills","description":"Anthropic skills to enable (e.g. pptx, xlsx, docx, pdf, or custom skill IDs).","type":{"items":{"type":"string"},"type":"array"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":true,"fieldKey":"","sensitive":false},"systemPrompt":{"order":2,"name":"System prompt","description":"A system prompt is a way of providing context and instructions to Claude, such as specifying a particular goal or role.","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"temperature":{"order":11,"name":"Temperature","description":"Amount of randomness injected into the response. Defaults to `1.0`. Ranges from `0.0` to `1.0`. Use temperature closer to `0.0` for analytical / multiple choice, and closer to `1.0` for creative and generative tasks. Note that even with temperature of `0.0`, the results will not be fully deterministic.","type":{"type":"number"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"thinking":{"order":6,"name":"Thinking","description":"Whether to enable Claude''s extended thinking. This will make the model think more deeply and generate more detailed responses. This will also increase the cost of the request.","type":{"type":"boolean"},"fixed":false,"required":false,"default":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"thinkingBudget":{"order":7,"name":"Thinking budget","description":"Determines how many tokens Claude can use for its internal reasoning process. Must be ≥1024 and less than `max_tokens`.","type":{"type":"number"},"fixed":false,"required":false,"default":2048,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"toolDefinitions":{"order":8,"name":"Tools","description":"Array of tool blocks to use.\nYou can specify them like this:\n```javascript\n[signals.toolBlock.definition, ...]\n```","type":{"items":{"properties":{"blockId":{"description":"ID of the tool definition block","order":0,"type":"string"},"description":{"description":"Description of the tool","order":2,"type":"string"},"name":{"description":"Name of the tool","order":1,"type":"string"},"schema":{"description":"Schema of the tool","order":3,"type":"object"}},"required":["name","description","schema"],"type":"object"},"type":"array"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"result":{"order":0,"name":"Result","description":"The generated message","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"object":{"anyOf":[{"additionalProperties":true,"type":"object"},{"type":"null"}],"description":"The generated object if schema is provided","order":1},"text":{"description":"The generated message","order":0,"type":"string"},"usage":{"order":2,"properties":{"inputTokens":{"order":0,"type":"number"},"outputTokens":{"order":1,"type":"number"}},"type":"object"}},"required":["usage"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":true,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1670, 1210]
+    inputs:
+      default:
+        links:
+          - block: Indicate thinking
+            output: default
+        config:
+          maxRetries: 3
+          maxTokens: 16000
+          model: !expr signals['triageModel'].value
+          prompt: !expr outputs.buildPrompt
+          schema: !expr |-
+            ({
+              type: "object",
+              properties: {
+                classification_reasoning: {
+                  description: "Think step by step about what kind of ticket this is before classifying. Weigh the evidence for each possible classification, then commit.",
+                  type: "string"
+                },
+                classification: {
+                  description: "Type of ticket being triaged",
+                  type: "string",
+                  enum: ["feature_request", "support_request", "bug_report", "spam"]
+                },
+                classification_certainty: {
+                  description: "Confidence level in the classification (0-100)",
+                  type: "number",
+                  minimum: 0,
+                  maximum: 100
+                },
+                scope_reasoning: {
+                  description: "Before choosing a team, reason explicitly about which engineering team owns this area, using the team_scopes context provided. Consider each candidate team and why it does or does not fit.",
+                  type: "string"
+                },
+                scope_team: {
+                  description: "The engineering team whose domain this ticket falls under, regardless of whether it will be built. Always required for every non-spam ticket.",
+                  type: "string",
+                  enum: (outputs.teamRouting && outputs.teamRouting.teamNames && outputs.teamRouting.teamNames.length ? outputs.teamRouting.teamNames : ["Platform", "Integrations", "Enterprise"])
+                },
+                sufficient_data_score: {
+                  description: "Score indicating if we have enough data to make an informed decision (0-100)",
+                  type: "number",
+                  minimum: 0,
+                  maximum: 100
+                },
+                sufficient_data_justification: {
+                  description: "Very short (up to 140 characters) justification for the data sufficiency score",
+                  type: "string"
+                },
+                proposed_response: {
+                  description: "Proposed response to the ticket (up to 3000 characters). Plain text only: no HTML tags, no Markdown syntax, and no HTML entity escaping (write apostrophes and quotes as plain characters). Separate paragraphs with a blank line. Respectful but informal tone. Forum post style, not a private message",
+                  type: "string"
+                },
+                proposed_next_step: {
+                  description: "Recommended next step for handling this ticket",
+                  type: "string",
+                  enum: ["send_to_solutions_engineering", "open_engineering_ticket", "open_support_ticket", "close", "ask_customer_for_more_data", "open_for_community_voting"]
+                },
+                proposed_ticket: {
+                  description: "If the proposed step involves routing to one of the internal teams, this represents a draft of a ClickUp ticket. ClickUp uses Markdown for formatting.",
+                  type: "string"
+                },
+                build_recommendation: {
+                  description: "For a feature request, recommendation score for building this feature (0-100)",
+                  type: "number",
+                  minimum: 0,
+                  maximum: 100
+                },
+                build_justification: {
+                  description: "For a feature request, very short (up to 140 characters) justification for the build recommendation",
+                  type: "string"
+                },
+                build_engineering_team: {
+                  description: "For a feature request that's worth pursuing, choose the team that should be implementing it",
+                  type: "string",
+                  enum: (outputs.teamRouting && outputs.teamRouting.teamNames && outputs.teamRouting.teamNames.length ? outputs.teamRouting.teamNames : ["Platform", "Integrations", "Enterprise"])
+                }
+              },
+              required: [
+                "classification_reasoning",
+                "classification",
+                "classification_certainty",
+                "scope_reasoning",
+                "scope_team",
+                "sufficient_data_score",
+                "sufficient_data_justification",
+                "proposed_response",
+                "proposed_next_step"
+              ]
+            })
+          systemPrompt: !expr signals['instructions'].value
+          temperature: 1
+          thinking: false
+          toolDefinitions: []
+    errorHandler: Handle Error
+  - name: Triage model
+    description: Model ID used by the Triage block.
+    type:
+      appBlock:
+        block: flowVariable
+        appInstallation: variables
+        schema: '{"order":4,"name":"Flow-local variable","category":"Variables","description":"Store and manage a flow-local plaintext variable","config":{"value":{"order":0,"name":"Value","description":"Value of the flow-local plaintext variable","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnInternalMessage":false,"inputs":{},"outputs":{"default":{"order":0,"description":"Emitted when the flow-local variable value changes","default":true,"possiblePrimaryParents":[],"type":{"properties":{"previousValue":{"type":"string"},"value":{"type":"string"}},"required":["value"],"type":"object"}}},"signals":{"value":{"order":0,"name":"Value","description":"Value of the flow-local plaintext variable","sensitive":false}},"hasOnSync":true,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [300, 1681]
+    config:
+      value: !expr '`claude-opus-4-8`'
+  - name: Update Post
+    description: Assigns the post to the owning team's Featurebase admin.
+    type:
+      appBlock:
+        block: updatePost
+        appInstallation: featurebase
+        schema: '{"order":11,"name":"Update Post","category":"Posts","description":"Updates an existing post in Featurebase by providing the post ID and fields to update","config":{},"hasOnInternalMessage":false,"inputs":{"default":{"order":0,"config":{"assigneeId":{"order":11,"name":"Assignee ID","description":"Featurebase admin ID to assign this post to (null to unassign)","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"category":{"order":5,"name":"Category","description":"Updated category of the post","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"commentsAllowed":{"order":4,"name":"Comments Allowed","description":"Whether comments are allowed on the post","type":{"type":"boolean"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"content":{"order":2,"name":"Content","description":"Updated HTML content of the post","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"customInputValues":{"order":10,"name":"Custom Input Values","description":"Updated custom field values where key is field ID and value depends on field type","type":{"additionalProperties":true,"type":"object"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"date":{"order":9,"name":"Creation Date","description":"Updated creation date of the post (ISO format)","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"id":{"order":0,"name":"Post ID","description":"The ID of the post to update","type":{"type":"string"},"fixed":false,"required":true,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"inReview":{"order":8,"name":"In Review","description":"Whether the post is in review (hidden from users when true)","type":{"type":"boolean"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"sendStatusUpdateEmail":{"order":6,"name":"Send Status Update Email","description":"Whether to send status update email to upvoters","type":{"type":"boolean"},"fixed":false,"required":false,"default":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"status":{"order":3,"name":"Status","description":"Updated status of the post","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"tags":{"order":7,"name":"Tags","description":"Updated tags for the post","type":{"items":{"type":"string"},"type":"array"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false},"title":{"order":1,"name":"Title","description":"Updated title of the post","type":{"type":"string"},"fixed":false,"required":false,"hasValidator":false,"hasSuggestValues":false,"fieldKey":"","sensitive":false}},"hasOnEvent":true}},"outputs":{"success":{"order":0,"name":"Success","description":"Post updated successfully","default":true,"possiblePrimaryParents":["default"],"type":{"properties":{"postId":{"description":"The ID of the updated post","order":0,"type":"string"},"success":{"description":"Whether the operation was successful","order":1,"type":"boolean"},"updatedFields":{"description":"List of fields that were updated","items":{"type":"string"},"order":2,"type":"array"}},"required":["postId","success","updatedFields"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1670, 1981]
+    inputs:
+      default:
+        links:
+          - block: Is spam?
+            output: else
+        config:
+          assigneeId: !expr |-
+            (function () {
+              const teams = outputs.teamRouting && outputs.teamRouting.teams ? outputs.teamRouting.teams : {};
+              const route = teams[outputs.triage.object?.scope_team];
+              return route ? route.featurebase_assignee_id : undefined;
+            })()
+          id: !expr outputs.prepareTicket.id
+    errorHandler: Handle Error
+  - name: When post created
+    description: Fires when a new post is created in Featurebase.
+    type:
+      appBlock:
+        block: postCreatedSubscription
+        appInstallation: featurebase
+        schema: '{"order":0,"name":"Post Created","category":"Event Subscriptions","description":"Receives events when a new post is created in Featurebase","config":{},"hasOnInternalMessage":true,"inputs":{},"outputs":{"event":{"order":0,"name":"Post Created Event","description":"Emitted when receives events when a new post is created in featurebase","default":true,"possiblePrimaryParents":[],"type":{"description":"Featurebase webhook event payload","properties":{"createdAt":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":4,"type":"string"},"deliveryStatus":{"description":"Status of the webhook delivery.","enum":["pending","delivered","failed"],"order":5,"type":"string"},"id":{"description":"Unique webhook event ID.","order":1,"type":"string"},"organizationId":{"description":"Organization ID where the event occurred.","order":2,"type":"string"},"post":{"description":"The post that was created","order":6,"properties":{"commentCount":{"description":"Total number of comments on the post.","minimum":0,"order":5,"type":"integer"},"commentsAllowed":{"description":"Whether users can comment on this post.","order":7,"type":"boolean"},"content":{"description":"Full content/description of the post.","order":2,"type":"string"},"date":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":8,"type":"string"},"id":{"description":"Unique post ID.","order":0,"type":"string"},"lastModified":{"description":"ISO 8601 timestamp (e.g., ''2023-01-15T10:30:00Z'').","format":"date-time","order":9,"type":"string"},"lastUpvoted":{"description":"Timestamp of the most recent upvote, or null if never upvoted.","format":"date-time","order":10,"type":["string","null"]},"pinned":{"description":"Whether the post is pinned to the top of its category.","order":6,"type":"boolean"},"postCategory":{"description":"Category information for organizing posts.","order":13,"properties":{"icon":{"description":"Icon identifier or emoji for the category.","order":2,"type":["string","null"]},"id":{"description":"Unique category ID.","order":3,"type":"string"},"name":{"description":"Display name of the category.","order":0,"type":"string"},"private":{"description":"Whether this category is private to certain users.","order":1,"type":"boolean"}},"required":["name","private","id"],"type":"object"},"postStatus":{"description":"Status information for a post (e.g., ''Under Review'', ''In Progress'', ''Completed'').","order":12,"properties":{"color":{"description":"Hex color code for the status (e.g., ''#FF5733'').","order":1,"pattern":"^#[0-9A-Fa-f]{6}$","type":"string"},"id":{"description":"Unique status ID.","order":4,"type":"string"},"isDefault":{"description":"Whether this is the default status for new posts.","order":3,"type":"boolean"},"name":{"description":"Display name of the status.","order":0,"type":"string"},"type":{"description":"Internal type identifier for the status.","order":2,"type":"string"}},"required":["name","color","type","isDefault","id"],"type":"object"},"postTags":{"description":"List of tags associated with the post.","items":{"properties":{"color":{"order":1,"type":"string"},"id":{"order":3,"type":"string"},"name":{"order":0,"type":"string"},"private":{"order":2,"type":"boolean"}},"type":"object"},"order":14,"type":"array"},"slug":{"description":"URL-friendly slug for the post.","order":3,"type":"string"},"title":{"description":"Title of the post.","order":1,"type":"string"},"upvotes":{"description":"Number of upvotes the post has received.","minimum":0,"order":4,"type":"integer"},"user":{"description":"Featurebase user object with profile information.","order":11,"properties":{"email":{"description":"User''s email address.","format":"email","order":1,"type":"string"},"id":{"description":"Unique user ID in Featurebase.","order":0,"type":"string"},"name":{"description":"Display name of the user.","order":2,"type":"string"},"profilePicture":{"description":"URL to the user''s profile picture, or null if not set.","format":"uri","order":3,"type":["string","null"]},"type":{"description":"User''s role type in the organization.","enum":["user","admin","member"],"order":5,"type":"string"},"verified":{"description":"Whether the user''s email address has been verified.","order":4,"type":"boolean"}},"required":["id","email","name","verified","type"],"type":"object"}},"required":["id","title","content","slug","upvotes","commentCount","pinned","commentsAllowed","date","lastModified","user","postStatus","postCategory"],"type":"object"},"type":{"description":"Event type matching the webhook topic.","order":0,"type":"string"},"webhookId":{"description":"ID of the webhook that generated this event.","order":3,"type":"string"}},"required":["type","id","organizationId","webhookId","createdAt","deliveryStatus","post"],"type":"object"}}},"signals":{},"hasOnSync":false,"hasOnDrain":false,"hasOnTimer":false,"entrypoint":false}'
+        # The above schema can be used if you attempt to create this block without a valid app installation referenced.
+    position: [1122, -703]
+    errorHandler: Handle Error
+notes:
+  - body: |-
+      # Featurebase Post Triage
+
+      Automatically triages new Featurebase posts using an AI "robotic PM", and keeps Slack in sync.
+
+      **Flow at a glance**
+      1. **Intake**: a new post is fetched, enriched, and a Slack thread is opened (mapping stored in memory).
+      2. **Context**: product docs & team routing are fetched from GitHub and combined into a prompt.
+      3. **Triage**: an LLM classifies the ticket, picks the owning team, scores it, and drafts a response.
+      4. **Outcome**: spam (certainty > 90) is deleted; everything else is assigned to the owning team and the result is posted to Slack.
+      5. **Comment sync**: new Featurebase comments are mirrored into the Slack thread.
+
+      **Config**: *Instructions* (system prompt) and *Triage model* flow-local variables. *Handle Error* catches failures in the triage chain.
+    position: [620, -745]
+    style:
+      width: 420
+      height: 440
+      color: '#18181b'
+  - body: |-
+      ## 1. Intake
+      New Featurebase post → fetch, enrich, convert to Markdown, open Slack thread, prepare ticket.
+    position: [1090, -800]
+    style:
+      width: 860
+      height: 900
+      color: '#3b82f6'
+  - body: |-
+      ## 2. Context & AI triage
+      Fetch team scopes, principles, current work, capabilities and routing from GitHub → build prompt → LLM classifies the ticket, picks the owning team and drafts a response.
+    position: [1020, 130]
+    style:
+      width: 910
+      height: 1250
+      color: '#8b5cf6'
+  - body: |-
+      ## 3a. Spam path
+      Delete the post, then notify in Slack.
+    position: [1385, 1410]
+    style:
+      width: 255
+      height: 740
+      color: '#ef4444'
+  - body: |-
+      ## 3b. Decision
+      Spam (certainty > 90)? Otherwise assign the post to the owning team.
+    position: [1655, 1410]
+    style:
+      width: 255
+      height: 740
+      color: '#f97316'
+  - body: |-
+      ## 4. Triage result
+      Format the result and post it to the Slack thread.
+    position: [1925, 1410]
+    style:
+      width: 270
+      height: 740
+      color: '#22c55e'
+  - body: |-
+      ## 5. Comment sync
+      Mirror new Featurebase comments into the Slack thread.
+    position: [1090, 1410]
+    style:
+      width: 280
+      height: 740
+      color: '#06b6d4'
+  - body: |-
+      ## Configuration
+      Flow-local variables: the PM system prompt and the LLM model used by *Triage*.
+    position: [0, 1581]
+    style:
+      width: 545
+      height: 270
+      color: '#6b7280'
+  - body: |-
+      ## Memory & errors
+      Thread mapping store (post → Slack thread) and the central error handler for the triage chain.
+    position: [555, 1581]
+    style:
+      width: 520
+      height: 270
+      color: '#eab308'
